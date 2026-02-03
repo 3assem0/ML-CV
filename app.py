@@ -144,52 +144,104 @@ with tab1:
 
 with tab2:
     st.header(f"{mode} - Live Webcam Feed")
-    st.info("For best performance with local script on DESKTOP, use 'CV2 Webcam'. For MOBILE/TABLET, use 'Browser Camera'.")
+    st.info("For best performance with local script on DESKTOP, use 'CV2 Webcam'. For MOBILE/TABLET or CLOUD, use 'Browser Camera'.")
     
     webcam_mode = st.radio("Select Webcam Mode", ["CV2 Webcam (Desktop)", "Browser Camera (Mobile/Tablet)"], horizontal=True)
 
     if webcam_mode == "CV2 Webcam (Desktop)":
-        run_webcam = st.checkbox("Start Webcam in Dashboard")
+        st.warning("⚠️ CV2 Webcam only works when running locally on your computer. It will NOT work on Streamlit Cloud.")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            run_webcam = st.checkbox("Start Webcam Stream")
+        with col2:
+            cam_index = st.number_input("Camera Index", 0, 10, 0, key="cam_idx")
+        
+        st_frame_webcam = st.empty()
+        st_stats = st.empty()
         
         if run_webcam:
-            cam_index = st.number_input("Camera Index", 0, 10, 0)
-            cap = cv2.VideoCapture(cam_index)
-            st_frame_webcam = st.empty()
+            cap = cv2.VideoCapture(int(cam_index))
             
-            while run_webcam:
-                ret, frame = cap.read()
-                if not ret:
-                    st.error("Failed to access webcam")
-                    break
-                    
-                detections, _ = detector.detect(frame, conf_threshold)
-                annotated_frame = draw_detections(frame, detections, colors)
-                frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            if not cap.isOpened():
+                st.error("❌ Failed to access webcam. Make sure:")
+                st.markdown("""
+                - Your camera is connected
+                - No other app is using the camera
+                - You're running this locally (not on Streamlit Cloud)
+                """)
+            else:
+                frame_count = 0
                 
-                st_frame_webcam.image(frame_rgb, channels="RGB")
+                # Create a stop button
+                stop_button = st.button("⏹️ Stop Stream", key="stop_btn")
+                
+                while run_webcam and not stop_button:
+                    ret, frame = cap.read()
+                    if not ret:
+                        st.error("Failed to read frame from webcam")
+                        break
+                    
+                    # Detect objects
+                    detections, _ = detector.detect(frame, conf_threshold)
+                    annotated_frame = draw_detections(frame, detections, colors)
+                    frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                    
+                    # Update display
+                    st_frame_webcam.image(frame_rgb, channels="RGB", use_column_width=True)
+                    
+                    # Show stats
+                    counts, total = count_objects(detections)
+                    frame_count += 1
+                    st_stats.metric("Objects Detected", total, delta=f"Frame {frame_count}")
+                    
+                    # Small delay to prevent overwhelming the UI
+                    if frame_count % 2 == 0:  # Process every other frame for better performance
+                        continue
+                
+                cap.release()
+                st.success("✅ Webcam stream stopped")
             
-            cap.release()
-            
-    else: # Browser Camera (Mobile)
-        st.markdown("**Take a photo to detect objects** (Mobile Friendly)")
+    else: # Browser Camera (Mobile/Tablet)
+        st.markdown("**📸 Take a photo to detect objects** (Works on Mobile, Tablet, and Cloud)")
+        st.info("💡 This mode works everywhere - local, cloud, mobile, and desktop!")
+        
         cam_img = st.camera_input("Take Photo")
         
         if cam_img is not None:
-            # Process the taken photo similar to "Image Upload"
+            # Process the taken photo
             image = Image.open(cam_img)
             image_np = np.array(image)
             
-            frame = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-            detections, _ = detector.detect(frame, conf_threshold)
-            annotated_frame = draw_detections(frame, detections, colors)
-            annotated_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            col1, col2 = st.columns(2)
             
-            # Counts
-            counts, total = count_objects(detections)
+            with col1:
+                st.image(image, caption="Original Photo", use_column_width=True)
             
-            st.image(annotated_rgb, caption="Detected Objects", use_column_width=True)
-            st.success(f"Found {total} objects")
-            st.json(counts)
+            with st.spinner("🔍 Detecting objects..."):
+                frame = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+                detections, _ = detector.detect(frame, conf_threshold)
+                annotated_frame = draw_detections(frame, detections, colors)
+                annotated_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                
+                # Counts
+                counts, total = count_objects(detections)
+            
+            with col2:
+                st.image(annotated_rgb, caption="Detected Objects", use_column_width=True)
+            
+            # Display results
+            st.success(f"✅ Found {total} objects")
+            
+            # Show detailed counts
+            if counts:
+                st.subheader("📊 Detection Summary")
+                cols = st.columns(min(len(counts), 4))
+                for idx, (obj_name, count) in enumerate(counts.items()):
+                    with cols[idx % 4]:
+                        st.metric(obj_name, count)
+            else:
+                st.info("No objects detected. Try adjusting the confidence threshold.")
 
 with tab3:
     st.header("🏺 Data Collection for Archaeology")
