@@ -6,6 +6,7 @@ import tempfile
 import os
 import sys
 import datetime
+import requests
 
 # Ensure src is in python path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -32,6 +33,10 @@ st.set_page_config(
 # Title and Sidebar
 st.title("Archaeology & Indoor Object Detection")
 st.markdown("### Detect people, pets, or classify archaeological materials")
+
+st.sidebar.header("ESP32 Sensor Config")
+esp32_ip = st.sidebar.text_input("ESP32 IP Address", value="http://192.168.1.100")
+st.sidebar.markdown("---")
 
 st.sidebar.header("Model Config")
 
@@ -94,6 +99,8 @@ with tab1:
             col1, col2 = st.columns(2)
             with col1:
                 st.image(image, caption="Original Image", use_column_width=True)
+                
+            load_cell_area = st.selectbox("Select Load Cell Area", ["None", "Area 1", "Area 2", "Area 3"], key="img_area")
 
             if st.button("Detect Objects"):
                 with st.spinner("Detecting..."):
@@ -102,13 +109,42 @@ with tab1:
                     annotated_frame = draw_detections(frame, detections, colors)
                     annotated_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                     
+                    # Fetch weight
+                    current_weight = None
+                    weight_category = None
+                    if load_cell_area != "None":
+                        try:
+                            resp = requests.get(f"{esp32_ip}/weights", timeout=2)
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                if load_cell_area == "Area 1":
+                                    current_weight = data.get("area1")
+                                elif load_cell_area == "Area 2":
+                                    current_weight = data.get("area2")
+                                elif load_cell_area == "Area 3":
+                                    current_weight = data.get("area3")
+                                    
+                                if current_weight is not None:
+                                    if current_weight < 500:
+                                        weight_category = "Light"
+                                    elif current_weight < 2000:
+                                        weight_category = "Medium"
+                                    else:
+                                        weight_category = "Heavy"
+                        except Exception as e:
+                            st.warning(f"Failed to fetch weight from ESP32: {e}")
+                    
                     # Counts
                     counts, total = count_objects(detections)
                     
                     with col2:
                         st.image(annotated_rgb, caption="Detected Objects", use_column_width=True)
                     
-                    st.success(f"Found {total} objects")
+                    if current_weight is not None:
+                        st.success(f"Found {total} objects | **Weight ({load_cell_area}):** {current_weight}g ({weight_category})")
+                    else:
+                        st.success(f"Found {total} objects")
+                        
                     st.json(counts)
 
     elif source_type == "Video":
@@ -208,6 +244,8 @@ with tab2:
         
         cam_img = st.camera_input("Take Photo")
         
+        load_cell_area = st.selectbox("Select Load Cell Area", ["None", "Area 1", "Area 2", "Area 3"], key="cam_area")
+        
         if cam_img is not None:
             # Process the taken photo
             image = Image.open(cam_img)
@@ -224,6 +262,31 @@ with tab2:
                 annotated_frame = draw_detections(frame, detections, colors)
                 annotated_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 
+                # Fetch weight
+                current_weight = None
+                weight_category = None
+                if load_cell_area != "None":
+                    try:
+                        resp = requests.get(f"{esp32_ip}/weights", timeout=2)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            if load_cell_area == "Area 1":
+                                current_weight = data.get("area1")
+                            elif load_cell_area == "Area 2":
+                                current_weight = data.get("area2")
+                            elif load_cell_area == "Area 3":
+                                current_weight = data.get("area3")
+                                
+                            if current_weight is not None:
+                                if current_weight < 500:
+                                    weight_category = "Light"
+                                elif current_weight < 2000:
+                                    weight_category = "Medium"
+                                else:
+                                    weight_category = "Heavy"
+                    except Exception as e:
+                        st.warning(f"Failed to fetch weight from ESP32: {e}")
+                
                 # Counts
                 counts, total = count_objects(detections)
             
@@ -231,7 +294,10 @@ with tab2:
                 st.image(annotated_rgb, caption="Detected Objects", use_column_width=True)
             
             # Display results
-            st.success(f"✅ Found {total} objects")
+            if current_weight is not None:
+                st.success(f"✅ Found {total} objects | **Weight ({load_cell_area}):** {current_weight}g ({weight_category})")
+            else:
+                st.success(f"✅ Found {total} objects")
             
             # Show detailed counts
             if counts:
