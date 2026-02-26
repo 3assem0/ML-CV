@@ -6,7 +6,10 @@ import tempfile
 import os
 import sys
 import datetime
-import requests
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
+import json
 
 # Ensure src is in python path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -18,6 +21,7 @@ from src.utils import draw_detections, get_random_colors, count_objects
 DATA_DIR = os.path.join("data", "raw")
 CLASSES = ["Artifact", "Stone", "Glass", "Plastic"]
 CUSTOM_MODEL_PATH = os.path.join("models", "custom_archaeology.pt")
+FIREBASE_URL = "https://archologestdb-default-rtdb.firebaseio.com/"
 
 # Ensure directories exist
 for cls in CLASSES:
@@ -30,13 +34,40 @@ st.set_page_config(
     layout="wide"
 )
 
-# Title and Sidebar
-st.title("Archaeology & Indoor Object Detection")
-st.markdown("### Detect people, pets, or classify archaeological materials")
+# Initialize Firebase App
+if not firebase_admin._apps:
+    try:
+        cred = None
+        # Check if running on Streamlit Cloud with Secrets
+        try:
+            if "firebase" in st.secrets:
+                # Load credentials from Streamlit Secrets
+                cred_dict = dict(st.secrets["firebase"])
+                cred = credentials.Certificate(cred_dict)
+        except FileNotFoundError:
+            # st.secrets throws FileNotFoundError locally if .streamlit/secrets.toml doesn't exist
+            pass
+            
+        if cred is None:
+            # Fallback for Local Development
+            # Expecting a file named firebase_key.json in the project root
+            key_path = os.path.join(os.path.dirname(__file__), "firebase_key.json")
+            if os.path.exists(key_path):
+                 cred = credentials.Certificate(key_path)
+            else:
+                 st.warning("⚠️ No Firebase Credentials Found. Real-time Database features may not work.")
+        
+        if cred:
+             firebase_admin.initialize_app(cred, {
+                'databaseURL': FIREBASE_URL
+             })
+             st.success("✅ Connected to Firebase Cloud Database")
+    except Exception as e:
+        st.error(f"Error initializing Firebase: {e}")
 
-st.sidebar.header("ESP32 Sensor Config")
-esp32_ip = st.sidebar.text_input("ESP32 IP Address", value="http://192.168.1.100")
-st.sidebar.markdown("---")
+# Title and Sidebar
+st.title("Smart Sieve & Object Detection")
+st.markdown("### Detect materials, control mechanical sorting, and weigh objects in real-time.")
 
 st.sidebar.header("Model Config")
 
@@ -56,6 +87,25 @@ else:
         st.sidebar.warning("Custom model not found. Please train it first.")
         model_type = "yolov8n.pt" # Fallback
     conf_threshold = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.5, 0.05)
+    
+# Firebase Control Helper Functions
+def toggle_motor(motor_name, state):
+    try:
+        ref = db.reference(f'/controls/{motor_name}')
+        ref.set(state)
+        return True
+    except Exception as e:
+         st.error(f"Failed to update motor {motor_name}: {e}")
+         return False
+
+def get_weight(area_name):
+    try:
+        ref = db.reference(f'/weights/{area_name}')
+        val = ref.get()
+        return val if val is not None else 0.0
+    except Exception as e:
+         st.error(f"Failed to fetch weight for {area_name}: {e}")
+         return None
 
 
 # Initialize Detector (Cached to avoid reloading)
@@ -75,7 +125,7 @@ if model_type:
         st.stop()
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["🖼️ Image/Video Upload", "📷 Live Webcam", "🏺 Data Collection"])
+tab1, tab2, tab3, tab4 = st.tabs(["⚙️ Hardware Control", "🖼️ Image/Video Upload", "📷 Live Webcam", "🏺 Data Collection"])
 
 def save_image(image, label):
     """Save the image to data/raw/{label}/..."""
@@ -86,6 +136,47 @@ def save_image(image, label):
     return path
 
 with tab1:
+    st.header("⚙️ Sieve Hardware Control Dashboard")
+    st.markdown("Control the DC sorting motors and the vibration system. Read real-time weights from the load cells.")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Physical Controls")
+        
+        # Read current states (optional: can add db.reference.get() to set initial state of toggles)
+        motor1_on = st.toggle("Actuate DC Motor 1 (Layer 1)", key="t_m1")
+        if motor1_on: toggle_motor("dc_motor1", True)
+        else: toggle_motor("dc_motor1", False)
+            
+        motor2_on = st.toggle("Actuate DC Motor 2 (Layer 2)", key="t_m2")
+        if motor2_on: toggle_motor("dc_motor2", True)
+        else: toggle_motor("dc_motor2", False)
+            
+        motor3_on = st.toggle("Actuate DC Motor 3 (Layer 3)", key="t_m3")
+        if motor3_on: toggle_motor("dc_motor3", True)
+        else: toggle_motor("dc_motor3", False)
+        
+        st.markdown("---")
+        vib_on = st.toggle("🔥 Activate Master Vibration", key="t_vib")
+        if vib_on: toggle_motor("vibration", True)
+        else: toggle_motor("vibration", False)
+            
+    with col2:
+        st.subheader("Real-Time Load Cells")
+        if st.button("🔄 Refresh Data"):
+             pass # Streamlit inherently re-runs
+             
+        mcol1, mcol2, mcol3 = st.columns(3)
+        wt1 = get_weight("area1")
+        wt2 = get_weight("area2")
+        wt3 = get_weight("area3")
+        
+        mcol1.metric("Area 1 Weight", f"{wt1} g" if wt1 is not None else "Err")
+        mcol2.metric("Area 2 Weight", f"{wt2} g" if wt2 is not None else "Err")
+        mcol3.metric("Area 3 Weight", f"{wt3} g" if wt3 is not None else "Err")
+
+with tab2:
     st.header(f"{mode} - Image & Video Detection")
     source_type = st.radio("Select Source", ["Image", "Video"], horizontal=True)
 
@@ -113,26 +204,14 @@ with tab1:
                     current_weight = None
                     weight_category = None
                     if load_cell_area != "None":
-                        try:
-                            resp = requests.get(f"{esp32_ip}/weights", timeout=2)
-                            if resp.status_code == 200:
-                                data = resp.json()
-                                if load_cell_area == "Area 1":
-                                    current_weight = data.get("area1")
-                                elif load_cell_area == "Area 2":
-                                    current_weight = data.get("area2")
-                                elif load_cell_area == "Area 3":
-                                    current_weight = data.get("area3")
-                                    
-                                if current_weight is not None:
-                                    if current_weight < 500:
-                                        weight_category = "Light"
-                                    elif current_weight < 2000:
-                                        weight_category = "Medium"
-                                    else:
-                                        weight_category = "Heavy"
-                        except Exception as e:
-                            st.warning(f"Failed to fetch weight from ESP32: {e}")
+                        if load_cell_area == "Area 1": current_weight = get_weight("area1")
+                        elif load_cell_area == "Area 2": current_weight = get_weight("area2")
+                        elif load_cell_area == "Area 3": current_weight = get_weight("area3")
+                                
+                        if current_weight is not None:
+                            if current_weight < 500: weight_category = "Light/Small"
+                            elif current_weight < 2000: weight_category = "Medium"
+                            else: weight_category = "Heavy/Large"
                     
                     # Counts
                     counts, total = count_objects(detections)
@@ -178,7 +257,7 @@ with tab1:
                 
             video_cap.release()
 
-with tab2:
+with tab3:
     st.header(f"{mode} - Live Webcam Feed")
     st.info("For best performance with local script on DESKTOP, use 'CV2 Webcam'. For MOBILE/TABLET or CLOUD, use 'Browser Camera'.")
     
@@ -266,26 +345,14 @@ with tab2:
                 current_weight = None
                 weight_category = None
                 if load_cell_area != "None":
-                    try:
-                        resp = requests.get(f"{esp32_ip}/weights", timeout=2)
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            if load_cell_area == "Area 1":
-                                current_weight = data.get("area1")
-                            elif load_cell_area == "Area 2":
-                                current_weight = data.get("area2")
-                            elif load_cell_area == "Area 3":
-                                current_weight = data.get("area3")
-                                
-                            if current_weight is not None:
-                                if current_weight < 500:
-                                    weight_category = "Light"
-                                elif current_weight < 2000:
-                                    weight_category = "Medium"
-                                else:
-                                    weight_category = "Heavy"
-                    except Exception as e:
-                        st.warning(f"Failed to fetch weight from ESP32: {e}")
+                    if load_cell_area == "Area 1": current_weight = get_weight("area1")
+                    elif load_cell_area == "Area 2": current_weight = get_weight("area2")
+                    elif load_cell_area == "Area 3": current_weight = get_weight("area3")
+                            
+                    if current_weight is not None:
+                        if current_weight < 500: weight_category = "Light/Small"
+                        elif current_weight < 2000: weight_category = "Medium"
+                        else: weight_category = "Heavy/Large"
                 
                 # Counts
                 counts, total = count_objects(detections)
@@ -309,7 +376,7 @@ with tab2:
             else:
                 st.info("No objects detected. Try adjusting the confidence threshold.")
 
-with tab3:
+with tab4:
     st.header("🏺 Data Collection for Archaeology")
     st.markdown("Capture images to train your custom model.")
     

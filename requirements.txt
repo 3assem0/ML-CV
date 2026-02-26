@@ -4,3 +4,4 @@ numpy
 streamlit
 pillow
 requests
+firebase-admin
