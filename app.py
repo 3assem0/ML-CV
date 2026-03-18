@@ -20,7 +20,7 @@ from src.utils import draw_detections, get_random_colors, count_objects
 # ── Constants ──────────────────────────────────────────────────────────────
 DATA_DIR     = os.path.join("data", "raw")
 CUSTOM_MODEL = os.path.join("models", "custom.pt")       # unified trained model
-FALLBACK_MODEL = "yolov8s-worldv2.pt"                             # YOLO-World open-vocabulary model
+FALLBACK_MODEL = "yolov8n.pt"                                      # standard YOLOv8 nano (cloud-safe, no CLIP needed)
 FIREBASE_URL = "https://archologestdb-default-rtdb.firebaseio.com/"
 
 # Classes for data-collection tab
@@ -119,9 +119,15 @@ detector = load_detector(model_path)
 if not detector:
     st.stop()
 
-# Update classes dynamically for YOLO-World
+# Update classes dynamically for YOLO-World (fails gracefully on Python 3.13 / cloud)
 if hasattr(detector, 'set_classes'):
-    detector.set_classes(custom_classes_list)
+    try:
+        detector.set_classes(custom_classes_list)
+    except Exception as e:
+        st.sidebar.warning(
+            f"⚠️ Custom class labels unavailable on this server (CLIP incompatibility).\n"
+            f"Running with default YOLO classes.\n`{type(e).__name__}`"
+        )
 
 colors = get_random_colors(len(detector.class_names))
 

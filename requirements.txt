@@ -5,5 +5,3 @@ streamlit
 pillow
 requests
 firebase-admin
-openai-clip
-setuptools
