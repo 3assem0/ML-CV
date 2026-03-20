@@ -22,7 +22,7 @@ def analyze_image_with_vlm(image_bgr, api_key, model="nvidia/nemotron-nano-12b-v
     """
     if not api_key:
         return "No API key provided."
-        
+    api_key = api_key.strip()
     # Resize image to max 512px to significantly speed up API request and inference
     max_dim = 512
     h, w = image_bgr.shape[:2]
