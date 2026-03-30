@@ -93,7 +93,7 @@ custom_classes_list = [c.strip().lower() for c in custom_classes_input.split(","
 st.sidebar.markdown("---")
 st.sidebar.subheader("🧠 Deep Analysis (Gemma-3)")
 st.sidebar.info("Get a free API key at [OpenRouter](https://openrouter.ai/) for human-like reasoning on finds.")
-default_or_key = "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"
+default_or_key = ""  # Never hardcode secrets — use st.secrets or enter manually below
 try:
     if "OPENROUTER_API_KEY" in st.secrets:
         default_or_key = st.secrets["OPENROUTER_API_KEY"]
