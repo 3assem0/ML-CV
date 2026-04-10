@@ -104,7 +104,7 @@ vlm_model = st.sidebar.text_input("OpenRouter Model", value="nvidia/nemotron-nan
 enable_vlm = st.sidebar.checkbox("Enable Deep Analysis (Slower)")
 
 # ── Firebase Helpers ───────────────────────────────────────────────────────
-def toggle_motor(motor_name, state):
+def control_motor(motor_name, state):
     try:
         db.reference(f"/controls/{motor_name}").set(state)
         return True
@@ -163,15 +163,22 @@ with tab1:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Motor Controls")
-        m1 = st.toggle("DC Motor 1 (Layer 1)", key="t_m1")
-        toggle_motor("dc_motor1", m1)
-        m2 = st.toggle("DC Motor 2 (Layer 2)", key="t_m2")
-        toggle_motor("dc_motor2", m2)
-        m3 = st.toggle("DC Motor 3 (Layer 3)", key="t_m3")
-        toggle_motor("dc_motor3", m3)
+        
+        # Motor 1
+        st.markdown("**DC Motor 1 (Layer 1)**")
+        m1_state = st.radio("M1 Direction", ["Stop", "Forward", "Backward"], key="r_m1", horizontal=True)
+        control_motor("dc_motor1", m1_state.lower())
+        
+        st.markdown("---")
+        
+        # Motor 2
+        st.markdown("**DC Motor 2 (Layer 2)**")
+        m2_state = st.radio("M2 Direction", ["Stop", "Forward", "Backward"], key="r_m2", horizontal=True)
+        control_motor("dc_motor2", m2_state.lower())
+
         st.markdown("---")
         vib = st.toggle("🔥 Master Vibration", key="t_vib")
-        toggle_motor("vibration", vib)
+        control_motor("vibration", vib)
 
     with col2:
         st.subheader("Real-Time Load Cells")

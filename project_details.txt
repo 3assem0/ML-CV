@@ -28,10 +28,9 @@ The **Smart Archaeological Sieve & Detector** is a full-stack IoT and AI solutio
     - Area 3: DOUT(18), SCK(19)
     - *Calibration*: Pre-set at **228.0f** for 5kg sensors.
 - **Actuators (L298 Driver & MOSFETs)**:
-    - Layer 1 DC Motor: Pins 13, 12
-    - Layer 2 DC Motor: Pins 14, 27
-    - Layer 3 DC Motor: Pins 26, 25
-    - Master Vibration: Pin 33 (MOSFET gate).
+    - Layer 1 DC Motor: Pins 12, 14 (Bidirectional: Forward/Backward/Stop)
+    - Layer 2 DC Motor: Pins 27, 26 (Bidirectional: Forward/Backward/Stop)
+    - Vibration Motors: Pins 32, 33, 25 (Controlled together).
 
 ### Cloud & Communication
 - **Platform**: Firebase Realtime Database (RTDB).
